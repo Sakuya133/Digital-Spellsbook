@@ -3,6 +3,18 @@
 import Link from 'next/link'
 import { motion } from 'framer-motion'
 import { useMemo, useState } from 'react'
+import { SpellActions } from '@/components/spells/spell-actions'
+import { CasterProfilePanel } from '@/components/spells/caster-profile-panel'
+import { SpellComparePanel } from '@/components/spells/spell-compare-panel'
+import {
+  SpellLoadoutBuilder,
+  SpellLoadoutButton,
+} from '@/components/spells/spell-loadout-builder'
+import { SpellSlotsTracker } from '@/components/spells/spell-slots-tracker'
+import { MyClassTome } from '@/components/spells/my-class-tome'
+import { RandomSpellDiscovery } from '@/components/spells/random-spell-discovery'
+import { useSpellCollection } from '@/lib/spell-collection'
+import { useCasterProfile } from '@/lib/caster-profile'
 
 export type SpellItem = {
   name: string
@@ -25,6 +37,7 @@ type SpellLibraryClientProps = {
 }
 
 type FilterMode = 'all' | 'class' | 'school'
+type CollectionView = 'all' | 'favorites' | 'prepared'
 
 function levelLabel(level?: number | null) {
   if (level == null) return 'Unknown level'
@@ -34,8 +47,10 @@ function levelLabel(level?: number | null) {
 
 function buildHref(q: string, page: number) {
   const params = new URLSearchParams()
+
   if (q) params.set('q', q)
   if (page > 1) params.set('page', String(page))
+
   const query = params.toString()
   return query ? `/spells?${query}` : '/spells'
 }
@@ -46,24 +61,31 @@ function schoolAccent(school: string) {
   if (key.includes('necromancy')) {
     return 'from-emerald-500/20 via-zinc-950 to-black border-emerald-400/30'
   }
+
   if (key.includes('evocation')) {
     return 'from-red-500/20 via-zinc-950 to-black border-red-400/30'
   }
+
   if (key.includes('illusion')) {
     return 'from-fuchsia-500/20 via-zinc-950 to-black border-fuchsia-400/30'
   }
+
   if (key.includes('abjuration')) {
     return 'from-sky-500/20 via-zinc-950 to-black border-sky-400/30'
   }
+
   if (key.includes('divination')) {
     return 'from-amber-500/20 via-zinc-950 to-black border-amber-400/30'
   }
+
   if (key.includes('transmutation')) {
     return 'from-violet-500/20 via-zinc-950 to-black border-violet-400/30'
   }
+
   if (key.includes('conjuration')) {
     return 'from-cyan-500/20 via-zinc-950 to-black border-cyan-400/30'
   }
+
   if (key.includes('enchantment')) {
     return 'from-pink-500/20 via-zinc-950 to-black border-pink-400/30'
   }
@@ -79,24 +101,33 @@ export function SpellLibraryClient({
 }: SpellLibraryClientProps) {
   const [localQuery, setLocalQuery] = useState(initialQuery)
   const [filterMode, setFilterMode] = useState<FilterMode>('all')
+  const [collectionView, setCollectionView] = useState<CollectionView>('all')
   const [selectedClass, setSelectedClass] = useState<string>('All')
   const [selectedSchool, setSelectedSchool] = useState<string>('All')
+  const [compareSpellNames, setCompareSpellNames] = useState<string[]>([])
+
+  const { isFavorite, isPrepared } = useSpellCollection()
+  const { profile, isReady: isProfileReady } = useCasterProfile()
 
   const allClasses = useMemo(() => {
     const set = new Set<string>()
+
     for (const spell of initialSpells) {
       for (const c of spell.classes) {
         if (c) set.add(c)
       }
     }
+
     return ['All', ...Array.from(set).sort()]
   }, [initialSpells])
 
   const allSchools = useMemo(() => {
     const set = new Set<string>()
+
     for (const spell of initialSpells) {
       if (spell.school) set.add(spell.school)
     }
+
     return ['All', ...Array.from(set).sort()]
   }, [initialSpells])
 
@@ -105,19 +136,71 @@ export function SpellLibraryClient({
       const qMatch = spell.name.toLowerCase().includes(localQuery.toLowerCase())
 
       const classMatch =
-        selectedClass === 'All' || spell.classes.includes(selectedClass)
+        filterMode !== 'class' ||
+        selectedClass === 'All' ||
+        spell.classes.includes(selectedClass)
 
       const schoolMatch =
-        selectedSchool === 'All' || spell.school === selectedSchool
+        filterMode !== 'school' ||
+        selectedSchool === 'All' ||
+        spell.school === selectedSchool
 
-      return qMatch && classMatch && schoolMatch
+      const collectionMatch =
+        collectionView === 'all' ||
+        (collectionView === 'favorites' && isFavorite(spell.name)) ||
+        (collectionView === 'prepared' && isPrepared(spell.name))
+
+      return qMatch && classMatch && schoolMatch && collectionMatch
     })
-  }, [initialSpells, localQuery, selectedClass, selectedSchool])
+  }, [
+    initialSpells,
+    localQuery,
+    filterMode,
+    selectedClass,
+    selectedSchool,
+    collectionView,
+    isFavorite,
+    isPrepared,
+  ])
 
   const featuredSchool =
-    selectedSchool !== 'All'
+    filterMode === 'school' && selectedSchool !== 'All'
       ? selectedSchool
       : filteredSpells[0]?.school ?? 'Arcane'
+
+  function applyMyClassFilter() {
+    setCollectionView('all')
+    setFilterMode('class')
+    setSelectedClass(profile.className)
+  }
+
+  function clearAllFilters() {
+    setCollectionView('all')
+    setFilterMode('all')
+    setSelectedClass('All')
+    setSelectedSchool('All')
+    setLocalQuery('')
+  }
+
+  function toggleCompareSpell(spellName: string) {
+    setCompareSpellNames((current) => {
+      if (current.includes(spellName)) {
+        return current.filter((item) => item !== spellName)
+      }
+
+      if (current.length >= 2) {
+        return [current[1], spellName]
+      }
+
+      return [...current, spellName]
+    })
+  }
+
+  function removeCompareSpell(spellName: string) {
+    setCompareSpellNames((current) =>
+      current.filter((item) => item !== spellName)
+    )
+  }
 
   return (
     <section className="relative overflow-hidden">
@@ -147,9 +230,9 @@ export function SpellLibraryClient({
                 Enter the living grimoire of known spells
               </h1>
               <p className="max-w-2xl text-base leading-7 text-zinc-300 sm:text-lg">
-                Search, filter, and explore spells by class, school, or arcane
-                discipline. Make it feel less like a database and more like a
-                forbidden book.
+                Search, filter, favorite, prepare, compare, build loadouts,
+                track spell slots, and discover random spells from your arcane
+                library.
               </p>
             </div>
 
@@ -162,6 +245,7 @@ export function SpellLibraryClient({
                   {initialSpells.length}
                 </p>
               </div>
+
               <div className="rounded-2xl border border-white/10 bg-white/5 p-4">
                 <p className="text-xs uppercase tracking-[0.25em] text-zinc-500">
                   Classes Found
@@ -170,6 +254,7 @@ export function SpellLibraryClient({
                   {allClasses.length - 1}
                 </p>
               </div>
+
               <div className="rounded-2xl border border-white/10 bg-white/5 p-4">
                 <p className="text-xs uppercase tracking-[0.25em] text-zinc-500">
                   Schools Found
@@ -181,6 +266,20 @@ export function SpellLibraryClient({
             </div>
           </div>
         </motion.div>
+
+        <CasterProfilePanel />
+
+        <MyClassTome
+          spells={initialSpells}
+          activeClass={selectedClass}
+          activeFilterMode={filterMode}
+          onApply={applyMyClassFilter}
+          onClear={clearAllFilters}
+        />
+
+        <SpellSlotsTracker />
+
+        <SpellLoadoutBuilder spells={initialSpells} />
 
         <motion.div
           initial={{ opacity: 0, y: 18 }}
@@ -194,7 +293,9 @@ export function SpellLibraryClient({
                 Featured Arcane Shelf
               </p>
               <h2 className="text-3xl font-bold text-zinc-50">
-                {featuredSchool === 'All' ? 'Arcane Collection' : `${featuredSchool} Collection`}
+                {featuredSchool === 'All'
+                  ? 'Arcane Collection'
+                  : `${featuredSchool} Collection`}
               </h2>
               <p className="max-w-2xl text-zinc-300">
                 This shelf changes vibe based on your selected school. Try
@@ -203,7 +304,11 @@ export function SpellLibraryClient({
             </div>
 
             <div className="rounded-2xl border border-white/10 bg-black/20 px-4 py-3 text-sm text-zinc-300">
-              Showing <span className="font-semibold text-amber-200">{filteredSpells.length}</span> matching spells
+              Showing{' '}
+              <span className="font-semibold text-amber-200">
+                {filteredSpells.length}
+              </span>{' '}
+              matching spells
             </div>
           </div>
         </motion.div>
@@ -214,35 +319,61 @@ export function SpellLibraryClient({
           transition={{ delay: 0.14, duration: 0.45 }}
           className="space-y-5 rounded-[28px] border border-white/10 bg-white/5 p-5"
         >
-          <div className="flex flex-col gap-3 xl:flex-row xl:items-center xl:justify-between">
+          <div className="flex flex-col gap-4">
+            <div className="flex flex-col gap-3 xl:flex-row xl:items-center xl:justify-between">
+              <div className="flex flex-wrap gap-2">
+                {(['all', 'favorites', 'prepared'] as CollectionView[]).map(
+                  (view) => (
+                    <button
+                      key={view}
+                      type="button"
+                      onClick={() => setCollectionView(view)}
+                      className={`rounded-full px-4 py-2 text-sm font-medium transition ${
+                        collectionView === view
+                          ? 'bg-amber-200 text-zinc-950'
+                          : 'border border-white/10 bg-zinc-900 text-zinc-200 hover:border-amber-200 hover:text-amber-200'
+                      }`}
+                    >
+                      {view === 'all'
+                        ? 'All Spells'
+                        : view === 'favorites'
+                          ? 'Favorites'
+                          : 'Prepared'}
+                    </button>
+                  )
+                )}
+              </div>
+
+              <div className="w-full xl:max-w-md">
+                <input
+                  type="text"
+                  value={localQuery}
+                  onChange={(event) => setLocalQuery(event.target.value)}
+                  placeholder="Quick filter on this page..."
+                  className="w-full rounded-2xl border border-white/10 bg-zinc-950 px-4 py-3 text-sm text-zinc-100 outline-none placeholder:text-zinc-500 focus:border-amber-200"
+                />
+              </div>
+            </div>
+
             <div className="flex flex-wrap gap-2">
               {(['all', 'class', 'school'] as FilterMode[]).map((mode) => (
                 <button
                   key={mode}
+                  type="button"
                   onClick={() => setFilterMode(mode)}
                   className={`rounded-full px-4 py-2 text-sm font-medium transition ${
                     filterMode === mode
-                      ? 'bg-amber-200 text-zinc-950'
-                      : 'border border-white/10 bg-zinc-900 text-zinc-200 hover:border-amber-200 hover:text-amber-200'
+                      ? 'bg-fuchsia-300 text-zinc-950'
+                      : 'border border-white/10 bg-zinc-900 text-zinc-200 hover:border-fuchsia-300 hover:text-fuchsia-200'
                   }`}
                 >
                   {mode === 'all'
-                    ? 'All Spells'
+                    ? 'All Categories'
                     : mode === 'class'
-                    ? 'By Class'
-                    : 'By School'}
+                      ? 'By Class'
+                      : 'By School'}
                 </button>
               ))}
-            </div>
-
-            <div className="w-full xl:max-w-md">
-              <input
-                type="text"
-                value={localQuery}
-                onChange={(e) => setLocalQuery(e.target.value)}
-                placeholder="Quick filter on this page..."
-                className="w-full rounded-2xl border border-white/10 bg-zinc-950 px-4 py-3 text-sm text-zinc-100 outline-none placeholder:text-zinc-500 focus:border-amber-200"
-              />
             </div>
           </div>
 
@@ -251,6 +382,7 @@ export function SpellLibraryClient({
               {allClasses.map((item) => (
                 <button
                   key={item}
+                  type="button"
                   onClick={() => setSelectedClass(item)}
                   className={`rounded-full px-4 py-2 text-sm transition ${
                     selectedClass === item
@@ -269,6 +401,7 @@ export function SpellLibraryClient({
               {allSchools.map((item) => (
                 <button
                   key={item}
+                  type="button"
                   onClick={() => setSelectedSchool(item)}
                   className={`rounded-full px-4 py-2 text-sm transition ${
                     selectedSchool === item
@@ -297,90 +430,133 @@ export function SpellLibraryClient({
           ) : null}
         </motion.div>
 
+        <RandomSpellDiscovery spells={filteredSpells} />
+
+        <SpellComparePanel
+          spells={initialSpells}
+          selectedSpellNames={compareSpellNames}
+          onRemove={removeCompareSpell}
+          onClear={() => setCompareSpellNames([])}
+        />
+
         {filteredSpells.length === 0 ? (
           <div className="rounded-[28px] border border-dashed border-white/15 bg-white/5 p-10 text-center text-zinc-300">
             No spells found for this filter.
           </div>
         ) : (
           <div className="grid gap-5 md:grid-cols-2 xl:grid-cols-3">
-            {filteredSpells.map((spell, index) => (
-              <motion.div
-                key={`${spell.name}-${spell.level_int ?? 'x'}`}
-                initial={{ opacity: 0, y: 24, scale: 0.98 }}
-                animate={{ opacity: 1, y: 0, scale: 1 }}
-                transition={{ delay: index * 0.03, duration: 0.35 }}
-              >
-                <Link
-                  href={`/spells/${encodeURIComponent(spell.name)}`}
-                  className={`group relative block overflow-hidden rounded-[28px] border bg-gradient-to-br p-5 transition duration-300 hover:-translate-y-1 hover:shadow-[0_0_40px_rgba(251,191,36,0.09)] ${schoolAccent(
-                    spell.school
-                  )}`}
+            {filteredSpells.map((spell, index) => {
+              const isCompared = compareSpellNames.includes(spell.name)
+
+              return (
+                <motion.div
+                  key={`${spell.name}-${spell.level_int ?? 'x'}`}
+                  initial={{ opacity: 0, y: 24, scale: 0.98 }}
+                  animate={{ opacity: 1, y: 0, scale: 1 }}
+                  transition={{ delay: index * 0.03, duration: 0.35 }}
                 >
-                  <div className="absolute inset-0 opacity-0 transition duration-300 group-hover:opacity-100 bg-[radial-gradient(circle_at_top_right,rgba(255,255,255,0.12),transparent_28%)]" />
+                  <article
+                    className={`group relative overflow-hidden rounded-[28px] border bg-gradient-to-br transition duration-300 hover:-translate-y-1 hover:shadow-[0_0_40px_rgba(251,191,36,0.09)] ${schoolAccent(
+                      spell.school
+                    )}`}
+                  >
+                    <Link
+                      href={`/spells/${encodeURIComponent(spell.name)}`}
+                      className="relative z-10 block p-5"
+                    >
+                      <div className="absolute inset-0 opacity-0 transition duration-300 group-hover:opacity-100 bg-[radial-gradient(circle_at_top_right,rgba(255,255,255,0.12),transparent_28%)]" />
 
-                  <div className="relative z-10 space-y-4">
-                    <div className="flex items-start justify-between gap-3">
-                      <div className="space-y-1">
-                        <h3 className="text-xl font-semibold text-zinc-50 group-hover:text-amber-100">
-                          {spell.name}
-                        </h3>
-                        <p className="text-sm text-zinc-400">
-                          {levelLabel(spell.level_int)} • {spell.school}
-                        </p>
+                      <div className="relative z-10 space-y-4">
+                        <div className="flex items-start justify-between gap-3">
+                          <div className="space-y-1">
+                            <h3 className="text-xl font-semibold text-zinc-50 group-hover:text-amber-100">
+                              {spell.name}
+                            </h3>
+                            <p className="text-sm text-zinc-400">
+                              {levelLabel(spell.level_int)} • {spell.school}
+                            </p>
+                          </div>
+
+                          <span className="rounded-full border border-amber-300/20 bg-amber-300/10 px-3 py-1 text-xs text-amber-200">
+                            Open
+                          </span>
+                        </div>
+
+                        <div className="grid grid-cols-2 gap-3 rounded-2xl border border-white/10 bg-black/20 p-3 text-sm">
+                          <div>
+                            <p className="text-zinc-500">Casting</p>
+                            <p className="mt-1 text-zinc-200">
+                              {spell.casting_time}
+                            </p>
+                          </div>
+
+                          <div>
+                            <p className="text-zinc-500">Range</p>
+                            <p className="mt-1 text-zinc-200">{spell.range}</p>
+                          </div>
+
+                          <div>
+                            <p className="text-zinc-500">Duration</p>
+                            <p className="mt-1 text-zinc-200">
+                              {spell.duration}
+                            </p>
+                          </div>
+
+                          <div>
+                            <p className="text-zinc-500">Type</p>
+                            <p className="mt-1 text-zinc-200">
+                              {spell.ritual ? 'Ritual' : 'Standard'}
+                            </p>
+                          </div>
+                        </div>
+
+                        <div className="flex flex-wrap gap-2">
+                          {spell.classes.slice(0, 4).map((item) => (
+                            <span
+                              key={item}
+                              className="rounded-full border border-white/10 bg-white/5 px-3 py-1 text-xs text-zinc-200"
+                            >
+                              {item}
+                            </span>
+                          ))}
+
+                          {spell.concentration ? (
+                            <span className="rounded-full border border-fuchsia-300/20 bg-fuchsia-300/10 px-3 py-1 text-xs text-fuchsia-200">
+                              Concentration
+                            </span>
+                          ) : null}
+
+                          {spell.ritual ? (
+                            <span className="rounded-full border border-sky-300/20 bg-sky-300/10 px-3 py-1 text-xs text-sky-200">
+                              Ritual
+                            </span>
+                          ) : null}
+                        </div>
+                      </div>
+                    </Link>
+
+                    <div className="relative z-20 flex flex-wrap items-center justify-between gap-3 border-t border-white/10 px-5 py-4">
+                      <div className="flex flex-wrap gap-2">
+                        <SpellActions spellName={spell.name} />
+                        <SpellLoadoutButton spellName={spell.name} />
                       </div>
 
-                      <span className="rounded-full border border-amber-300/20 bg-amber-300/10 px-3 py-1 text-xs text-amber-200">
-                        Open
-                      </span>
+                      <button
+                        type="button"
+                        onClick={() => toggleCompareSpell(spell.name)}
+                        className={`rounded-full border px-3 py-1.5 text-xs font-medium transition ${
+                          isCompared
+                            ? 'border-fuchsia-300/30 bg-fuchsia-300/15 text-fuchsia-200'
+                            : 'border-white/10 bg-white/5 text-zinc-200 hover:border-fuchsia-300 hover:text-fuchsia-200'
+                        }`}
+                      >
+                        {isCompared ? '✓ Comparing' : 'Compare'}
+                      </button>
                     </div>
-
-                    <div className="grid grid-cols-2 gap-3 rounded-2xl border border-white/10 bg-black/20 p-3 text-sm">
-                      <div>
-                        <p className="text-zinc-500">Casting</p>
-                        <p className="mt-1 text-zinc-200">{spell.casting_time}</p>
-                      </div>
-                      <div>
-                        <p className="text-zinc-500">Range</p>
-                        <p className="mt-1 text-zinc-200">{spell.range}</p>
-                      </div>
-                      <div>
-                        <p className="text-zinc-500">Duration</p>
-                        <p className="mt-1 text-zinc-200">{spell.duration}</p>
-                      </div>
-                      <div>
-                        <p className="text-zinc-500">Type</p>
-                        <p className="mt-1 text-zinc-200">
-                          {spell.ritual ? 'Ritual' : 'Standard'}
-                        </p>
-                      </div>
-                    </div>
-
-                    <div className="flex flex-wrap gap-2">
-                      {spell.classes.slice(0, 4).map((item) => (
-                        <span
-                          key={item}
-                          className="rounded-full border border-white/10 bg-white/5 px-3 py-1 text-xs text-zinc-200"
-                        >
-                          {item}
-                        </span>
-                      ))}
-
-                      {spell.concentration ? (
-                        <span className="rounded-full border border-fuchsia-300/20 bg-fuchsia-300/10 px-3 py-1 text-xs text-fuchsia-200">
-                          Concentration
-                        </span>
-                      ) : null}
-
-                      {spell.ritual ? (
-                        <span className="rounded-full border border-sky-300/20 bg-sky-300/10 px-3 py-1 text-xs text-sky-200">
-                          Ritual
-                        </span>
-                      ) : null}
-                    </div>
-                  </div>
-                </Link>
-              </motion.div>
-            ))}
+                  </article>
+                </motion.div>
+              )
+            })}
           </div>
         )}
 
